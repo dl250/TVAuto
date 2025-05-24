@@ -527,7 +527,7 @@ public class MainActivity extends Activity {
         String input = inputAll.getText().toString().trim();
         if (input.isEmpty()) {
             if(mode == 1){
-                showToast("导入默认频道脚本");
+                showToast("默认频道已填入输入框，请确认后再次点击导入");
                 inputAll.setText(R.string.DefaultChannel);
             }else{
                 showToast("请输入导入脚本");
