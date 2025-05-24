@@ -1,0 +1,43 @@
+<resources>
+    <!-- 紫色系列 -->
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+
+    <!-- 青色系列 -->
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+
+    <!-- 黑色和白色 -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- 红色系列 -->
+    <color name="red_200">#FFEF5350</color>
+    <color name="red_500">#F44336</color>
+    <color name="red_700">#D32F2F</color>
+
+    <!-- 蓝色系列 -->
+    <color name="blue_200">#FF90CAF9</color>
+    <color name="blue_500">#2196F3</color>
+    <color name="blue_700">#1976D2</color>
+
+    <!-- 绿色系列 -->
+    <color name="green_200">#A5D6A7</color>
+    <color name="green_500">#4CAF50</color>
+    <color name="green_700">#388E3C</color>
+
+    <!-- 橙色系列 -->
+    <color name="orange_200">#FFBB86FC</color>
+    <color name="orange_500">#FF5722</color>
+    <color name="orange_700">#D84315</color>
+
+    <!-- 灰色系列 -->
+    <color name="grey_200">#EEEEEE</color>
+    <color name="grey_500">#9E9E9E</color>
+    <color name="grey_700">#616161</color>
+
+    <!-- 深色与浅色 -->
+    <color name="dark_blue">#0D47A1</color>
+    <color name="light_blue">#81D4FA</color>
+</resources>
