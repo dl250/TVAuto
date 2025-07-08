@@ -24,6 +24,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.content.pm.ActivityInfo;
@@ -49,6 +50,7 @@ import java.util.regex.Pattern;
 public class MainActivity extends Activity {
 
     private WebView webView;
+    private SharedPreferences hidePrefs;
     private SharedPreferences configPrefs;
     private SharedPreferences programPrefs;
     private GestureDetector gestureDetector;
@@ -58,6 +60,8 @@ public class MainActivity extends Activity {
     private String[] channels;
     private int currentChannelIndex = 0;
     private int lastIndex = -1;
+    private boolean hidebtn = false;
+    private boolean isFirst = false;
     private float ratio;
     private int ratio_flag = 0;
     @Override
@@ -68,8 +72,12 @@ public class MainActivity extends Activity {
         int width = dm.widthPixels;
         int height =  dm.heightPixels;
         ratio = (float) dm.widthPixels / dm.heightPixels;
-
-        if(isTV(this)){
+        hidePrefs = getSharedPreferences("TVAuto_hide", MODE_PRIVATE);
+        hidebtn = hidePrefs.getBoolean("TVAuto_hide",false);
+        if(hidebtn){
+            setContentView(R.layout.activity_main_n);
+        }
+        else if(isTV(this)){
             setContentView(R.layout.activity_main_n);
             ratio_flag = 0;
         }
@@ -84,13 +92,14 @@ public class MainActivity extends Activity {
             ratio_flag = 0;
         }
         showToast((isTV(this)?"TV ":"")+width+"x"+height+" @"+width/gcd(width,height)+":"+height/gcd(width,height));
-
+        enableImmersiveMode();
         programPrefs = getSharedPreferences("TVAuto_Program", Context.MODE_PRIVATE);
         loadUserChannels();
         configPrefs = getSharedPreferences("TVAuto_Config", MODE_PRIVATE);
         currentChannelIndex = configPrefs.getInt("lastChannel", 0);
 
         if(channelsMap.isEmpty()){
+            isFirst = true;
             channelsMap.put("file:///android_asset/add_channel_help.html", "频道添加指南");
         }
         else if(Objects.equals(channelsMap.get("file:///android_asset/add_channel_help.html"), "频道添加指南")){
@@ -106,12 +115,20 @@ public class MainActivity extends Activity {
         if(ratio_flag != 0) {
             setupChannelBar();
         }
+
+        Button floatButton = findViewById(R.id.floatButton);
+        if (!isFirst) {
+            floatButton.postDelayed(() -> floatButton.setVisibility(View.GONE), 2500);
+        }
+        floatButton.setOnClickListener(v -> manageTvChannels());
+
         setupGestureDetector();
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        enableImmersiveMode();
     }
 
     @Override
@@ -122,12 +139,12 @@ public class MainActivity extends Activity {
         webView.post(() -> {
             int screenWidth = getResources().getDisplayMetrics().widthPixels;
             int screenHeight = getResources().getDisplayMetrics().heightPixels;
-
+            ratio = (float) screenWidth / screenHeight;
             LinearLayout.LayoutParams params;
-            if (ratio_flag == 1) {
+            if (ratio > 16f/9f) {
                 int width = Math.round(screenHeight * 16f / 9f);
                 params = new LinearLayout.LayoutParams(width, screenHeight);
-            } else if (ratio_flag == 2) {
+            } else if(ratio < 16f/9f) {
                 int height = Math.round(screenWidth * 9f / 16f);
                 params = new LinearLayout.LayoutParams(screenWidth, height);
             } else {
@@ -214,10 +231,7 @@ public class MainActivity extends Activity {
         btnDel.setTextSize(10+10*Math.abs(ratio - 16/9.f));
         btnDel.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#FF0000")));
         addChannelLayout.addView(btnDel);
-
         btnDel.setOnClickListener(v -> deleteCurrentChannel());
-
-
         btnAdd.setOnClickListener(v -> addOneChannel(nameInput,urlInput));
         btnImport.setOnClickListener(v -> addAllChannels(inputAll,0));
         channelBar.addView(addChannelLayout);
@@ -302,6 +316,17 @@ public class MainActivity extends Activity {
                 }
                 return false;
             }
+            @Override
+            public void onLongPress(@NonNull MotionEvent e) {
+                hidebtn = hidePrefs.getBoolean("TVAuto_hide",false);
+                if(hidebtn){
+                    hidePrefs.edit().putBoolean("TVAuto_hide",false).apply();
+                }
+               else{
+                    hidePrefs.edit().putBoolean("TVAuto_hide",true).apply();
+                }
+                restartApp();
+            }
         });
     }
     // 定义变量
@@ -370,7 +395,7 @@ public class MainActivity extends Activity {
         long now = System.currentTimeMillis();
 
         // 判断是否超时
-        if (now - lastDigitTime > 2000) {
+        if (now - lastDigitTime > 1000) {
             digitBuffer = digit;
         } else {
             digitBuffer = digitBuffer * 10 + digit;
@@ -382,7 +407,7 @@ public class MainActivity extends Activity {
         }
         // 移除旧的延迟任务，并重新延迟执行确认输入
         handler.removeCallbacks(digitConfirmRunnable);
-        handler.postDelayed(digitConfirmRunnable, 2000);
+        handler.postDelayed(digitConfirmRunnable, 1000);
     }
 
     private void confirmDigitInput() {
@@ -530,7 +555,8 @@ public class MainActivity extends Activity {
                 showToast("默认频道已填入输入框，请确认后再次点击导入");
                 inputAll.setText(R.string.DefaultChannel);
             }else{
-                showToast("请输入导入脚本");
+                showToast("默认频道已填入输入框，请确认后再次点击导入");
+                inputAll.setText(R.string.DefaultChannel);
             }
             return;
         }
@@ -622,5 +648,11 @@ public class MainActivity extends Activity {
         UiModeManager uiModeManager = (UiModeManager) context.getSystemService(Context.UI_MODE_SERVICE);
         return uiModeManager.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION;
     }
-
+    @SuppressWarnings("deprecation")
+    private void enableImmersiveMode() {
+        int uiOptions = View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+        getWindow().getDecorView().setSystemUiVisibility(uiOptions);
+    }
 }
