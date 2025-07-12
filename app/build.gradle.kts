@@ -10,7 +10,7 @@ android {
         applicationId = "xyz.mulin.tvauto"
         minSdk = 19
         targetSdk = 35
-        versionCode = 6
+        versionCode = 31
         versionName = "3.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
