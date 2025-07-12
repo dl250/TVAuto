@@ -10,6 +10,7 @@ import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -32,9 +33,13 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.textview.MaterialTextView;
+
 import android.content.res.ColorStateList;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AppCompatDelegate;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -47,7 +52,7 @@ import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class MainActivity extends Activity {
+public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
     private SharedPreferences hidePrefs;
@@ -68,6 +73,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES);
         DisplayMetrics dm = getResources().getDisplayMetrics();
         int width = dm.widthPixels;
         int height =  dm.heightPixels;
@@ -93,6 +99,7 @@ public class MainActivity extends Activity {
         }
         showToast((isTV(this)?"TV ":"")+width+"x"+height+" @"+width/gcd(width,height)+":"+height/gcd(width,height));
         enableImmersiveMode();
+        setupGestureDetector();
         programPrefs = getSharedPreferences("TVAuto_Program", Context.MODE_PRIVATE);
         loadUserChannels();
         configPrefs = getSharedPreferences("TVAuto_Config", MODE_PRIVATE);
@@ -111,18 +118,16 @@ public class MainActivity extends Activity {
         webView = findViewById(R.id.webView);
         setupWebView();
         setupWebViewLayoutParams();
-        loadChannel(currentChannelIndex);
         if(ratio_flag != 0) {
             setupChannelBar();
         }
-
+        webView.loadUrl("file:///android_asset/add_channel_help.html");
         Button floatButton = findViewById(R.id.floatButton);
         if (!isFirst) {
             floatButton.postDelayed(() -> floatButton.setVisibility(View.GONE), 2500);
         }
         floatButton.setOnClickListener(v -> manageTvChannels());
-
-        setupGestureDetector();
+        new Handler(Looper.getMainLooper()).postDelayed(() -> loadChannel(currentChannelIndex), 500);
     }
 
     @Override
@@ -231,6 +236,27 @@ public class MainActivity extends Activity {
         btnDel.setTextSize(10+10*Math.abs(ratio - 16/9.f));
         btnDel.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#FF0000")));
         addChannelLayout.addView(btnDel);
+
+        MaterialButton btnUP = new MaterialButton(this);
+        btnUP.setText("更新检测");
+        btnUP.setTextSize(10+10*Math.abs(ratio - 16/9.f));
+        btnUP.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#FFCC00")));
+
+        if (!isFirst)
+            addChannelLayout.addView(btnUP);
+
+        btnUP.setOnClickListener(v ->{
+            String url = "https://pan.baidu.com/s/1KxIuF3y5jac5gpJWwHKM8A?pwd=pwgw";
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            startActivity(intent);
+        });
+
+        MaterialTextView textView = new MaterialTextView(this);
+        String fullText = getString(R.string.tvauto_v);
+        String firstLine = fullText.split("\n")[0];
+        textView.setText("版本："+firstLine);
+        addChannelLayout.addView(textView);
+
         btnDel.setOnClickListener(v -> deleteCurrentChannel());
         btnAdd.setOnClickListener(v -> addOneChannel(nameInput,urlInput));
         btnImport.setOnClickListener(v -> addAllChannels(inputAll,0));
@@ -434,6 +460,7 @@ public class MainActivity extends Activity {
         settings.setSupportZoom(false);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setDomStorageEnabled(true);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36");
 
         webView.setWebViewClient(new WebViewClient() {
