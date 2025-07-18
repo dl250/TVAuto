@@ -1,7 +1,6 @@
 package xyz.mulin.tvauto;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.UiModeManager;
 import android.content.Context;
@@ -16,6 +15,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.util.TypedValue;
 import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -34,6 +34,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.textview.MaterialTextView;
 
 import android.content.res.ColorStateList;
@@ -70,6 +71,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean isFirst = false;
     private float ratio;
     private int ratio_flag = 0;
+    private Handler handler = new Handler(Looper.getMainLooper());
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -98,7 +100,7 @@ public class MainActivity extends AppCompatActivity {
             setContentView(R.layout.activity_main_n);
             ratio_flag = 0;
         }
-        showToast((isTV(this)?"TV ":"")+width+"x"+height+" @"+width/gcd(width,height)+":"+height/gcd(width,height));
+        showToast((isTV(this)?"TV ":"")+width+"x"+height);
         enableImmersiveMode();
         setupGestureDetector();
         programPrefs = getSharedPreferences("TVAuto_Program", Context.MODE_PRIVATE);
@@ -128,9 +130,8 @@ public class MainActivity extends AppCompatActivity {
             floatButton.postDelayed(() -> floatButton.setVisibility(View.GONE), 2500);
         }
         floatButton.setOnClickListener(v -> manageTvChannels());
-        new Handler(Looper.getMainLooper()).postDelayed(() -> loadChannel(currentChannelIndex), 500);
+        handler.postDelayed(() -> loadChannel(currentChannelIndex), 500);
     }
-
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
@@ -140,6 +141,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        handler.removeCallbacksAndMessages(null);
     }
     private void setupWebViewLayoutParams() {
         webView.post(() -> {
@@ -415,7 +417,6 @@ public class MainActivity extends AppCompatActivity {
 
     private int digitBuffer = -1;
     private long lastDigitTime = 0;
-    private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable digitConfirmRunnable = this::confirmDigitInput;
 
     private void handleDigitInput(int digit) {
@@ -430,7 +431,7 @@ public class MainActivity extends AppCompatActivity {
 
         lastDigitTime = now;
         if(digitBuffer>0){
-            showToast(String.valueOf(digitBuffer));
+            ShowSnackbar(String.valueOf(digitBuffer)+"#"+digit);
         }
         // 移除旧的延迟任务，并重新延迟执行确认输入
         handler.removeCallbacks(digitConfirmRunnable);
@@ -440,6 +441,7 @@ public class MainActivity extends AppCompatActivity {
     private void confirmDigitInput() {
         if (digitBuffer >= 0 && digitBuffer < channels.length) {
             currentChannelIndex = digitBuffer;
+            ShowSnackbar(channelsMap.get(channels[currentChannelIndex])+"#"+currentChannelIndex);
             loadChannel(currentChannelIndex);
             saveChannelIndex();
         }
@@ -502,13 +504,32 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private int pendingChannelIndex = -1;
+    private Runnable confirmChannelSwitchRunnable = () -> {
+        if (pendingChannelIndex >= 0 && pendingChannelIndex < channels.length) {
+            loadChannel(pendingChannelIndex);
+            saveChannelIndex();
+            Log.d("ChannelSwitch", "Confirmed channel: " + pendingChannelIndex);
+        } else {
+            Log.d("ChannelSwitch", "Invalid channel: " + pendingChannelIndex);
+        }
+        pendingChannelIndex = -1;
+    };
 
+    private void loadChannelWithThrottling(int index) {
+        // 更新待切换频道
+        pendingChannelIndex = index;
 
+        // 移除之前的延迟任务，重新计时
+        handler.removeCallbacks(confirmChannelSwitchRunnable);
+
+        // 延迟500ms后执行切换，防止频繁调用
+        handler.postDelayed(confirmChannelSwitchRunnable, 500);
+
+        Log.d("ChannelSwitch", "Scheduled channel: " + index);
+    }
     private void loadChannel(int index) {
         String channel = channels[index];
-        if (index != lastIndex)
-            showToast(index+"  "+channelsMap.get(channel));
-        lastIndex = index;
         webView.loadUrl(channel);
     }
 
@@ -518,18 +539,31 @@ public class MainActivity extends AppCompatActivity {
 
     private void switchToNextChannel() {
         currentChannelIndex = (currentChannelIndex + 1) % channels.length;
-        loadChannel(currentChannelIndex);
+        ShowSnackbar(channelsMap.get(channels[currentChannelIndex])+"#"+currentChannelIndex);
+        loadChannelWithThrottling(currentChannelIndex);
         saveChannelIndex();
     }
 
     private void switchToPrevChannel() {
         currentChannelIndex = (currentChannelIndex - 1 + channels.length) % channels.length;
-        loadChannel(currentChannelIndex);
+        ShowSnackbar(channelsMap.get(channels[currentChannelIndex])+"#"+currentChannelIndex);
+        loadChannelWithThrottling(currentChannelIndex);
         saveChannelIndex();
     }
     private void showToast(String message) {
         Toast.makeText(getApplicationContext(), message, Toast.LENGTH_SHORT).show();
     }
+    private void ShowSnackbar(String message) {
+        View rootView = findViewById(R.id.rootLayout);
+        Snackbar snackbar = Snackbar.make(rootView, message.split("#")[0], Snackbar.LENGTH_LONG);
+
+        View snackbarView = snackbar.getView();
+        TextView textView = snackbarView.findViewById(com.google.android.material.R.id.snackbar_text);
+        textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        snackbar.setAction(message.split("#")[1],v->{});
+        snackbar.show();
+    }
+
     private void saveUserChannel(String url, String name) {
         String json = programPrefs.getString("user_channels", "[]");
         try {

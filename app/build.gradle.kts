@@ -10,8 +10,8 @@ android {
         applicationId = "xyz.mulin.tvauto"
         minSdk = 19
         targetSdk = 35
-        versionCode = 32
-        versionName = "3.2"
+        versionCode = 33
+        versionName = "3.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -34,6 +34,7 @@ tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:deprecation")
 }
 dependencies {
+    implementation(libs.material.v190)
     implementation(libs.appcompat)
     implementation(libs.material)
     testImplementation(libs.junit)
