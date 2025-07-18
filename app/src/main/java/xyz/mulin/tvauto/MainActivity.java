@@ -15,6 +15,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -462,11 +463,22 @@ public class MainActivity extends AppCompatActivity {
         settings.setDomStorageEnabled(true);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36");
-
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 injectJsFromAssets(view, "video_resize.js");
+            }
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                view.evaluateJavascript("window.__VIDEO_RESIZE_INJECTED__", value -> {
+                    if ("true".equals(value)) {
+                        Log.d("TJS", "onPageStarted 阶段注入成功");
+                    } else {
+                        Log.d("TJS", "onPageStarted 阶段注入失败，等待 onPageFinished 二次注入");
+                        injectJsFromAssets(view, "video_resize.js");
+                    }
+                });
             }
         });
         webView.setWebChromeClient(new WebChromeClient());
