@@ -68,8 +68,8 @@ TVAuto 是一款基于 WebView 的电视直播浏览器，支持多设备（手�
 <img width="1797" height="808" alt="image" src="https://github.com/user-attachments/assets/5bac7daf-ec5b-4693-acb2-ae899dd5542d" />
 
 ### 平板 16：10
-长按屏幕切换状态
 <img width="1599" height="984" alt="image" src="https://github.com/user-attachments/assets/e2edbd8f-b14c-4ad2-ae7b-58e440c2b256" />
+长按屏幕切换状态
 <img width="1601" height="1003" alt="image" src="https://github.com/user-attachments/assets/4c5f818e-aa33-4a9e-a94b-41ef01e8b690" />
 
 
