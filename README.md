@@ -83,8 +83,21 @@ TVAuto 是一款基于 WebView 的电视直播浏览器，支持多设备（手�
 
 ## 📷 截图
 
-![Collage_20250708_231622018](https://github.com/user-attachments/assets/4bd9dd1d-3b30-44cb-9162-a60cdf471346)
-![QQ_1748088193638](https://github.com/user-attachments/assets/b5ef3582-493f-4ec2-87dc-d2910bec98cf)
-![QQ_1748088907744](https://github.com/user-attachments/assets/3a4e7bdc-7b1d-412a-a4d0-e47d5ff0f7c3)
-![QQ_1747568731949](https://github.com/user-attachments/assets/c78207c3-6a9f-4f5a-a2ab-cae07f6931ea)
-![QQ_1748077658933](https://github.com/user-attachments/assets/596badb3-57e0-4c1e-893f-4bb57186dbcd)
+### Android TV
+<img width="2560" height="1142" alt="image" src="https://github.com/user-attachments/assets/bef73ae1-fd3f-4739-b6d3-7507cd3fc7b0" />
+<img width="2560" height="1158" alt="image" src="https://github.com/user-attachments/assets/1046d720-e8b1-478c-b61f-e457d57e3f6a" />
+<img width="2560" height="1151" alt="image" src="https://github.com/user-attachments/assets/7e767389-a936-4e7e-a3db-b24f6b4ab4fe" />
+<img width="2560" height="1149" alt="image" src="https://github.com/user-attachments/assets/e2c4b213-347f-4688-a7ef-06a4d0bc3b51" />
+### 手机
+<img width="1795" height="804" alt="image" src="https://github.com/user-attachments/assets/71890e1c-5eb3-4835-a3ae-a29bacf51933" />
+<img width="1734" height="813" alt="image" src="https://github.com/user-attachments/assets/91dd06e9-247b-4232-a32d-1d5dfd0ff737" />
+长按屏幕切换状态
+<img width="1797" height="808" alt="image" src="https://github.com/user-attachments/assets/5bac7daf-ec5b-4693-acb2-ae899dd5542d" />
+
+
+
+
+
+
+
+
