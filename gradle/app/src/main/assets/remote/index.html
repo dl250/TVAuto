@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TVAuto 频道管理</title>
+    <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main>
+    <header>
+        <div>
+            <p class="eyebrow">TV Auto</p>
+            <h2>频道管理</h2>
+        </div>
+        <div class="header-actions">
+            <a class="ghost-button" href="https://pan.baidu.com/s/1ma_jq-9wbR4IQ5_lQO_Eng?pwd=5555" target="_blank" rel="noreferrer">检测更新</a>
+            <a class="ghost-button" href="/export.txt">导出 txt</a>
+        </div>
+    </header>
+
+    <section class="card">
+        <h2>新增频道</h2>
+        <form id="add-form">
+            <label>
+                名称
+                <input id="name-input" required placeholder="例如：CCTV-1 综合">
+            </label>
+            <label>
+                URL
+                <input id="url-input" required placeholder="https://...">
+            </label>
+            <button type="submit">新增</button>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>批量导入</h2>
+        <p class="muted">格式：<code>"频道名称","URL";...</code></p>
+        <p class="muted">选择 txt 文件自动填充，也可直接在下方输入或粘贴内容</p>
+        <input id="file-input" type="file" accept=".txt,text/plain">
+        <textarea id="import-text" placeholder='"CCTV-1 综合","https://tv.cctv.com/live/cctv1/";"江苏卫视","https://live.jstv.com/";'></textarea>
+        <button id="import-button" type="button">导入频道</button>
+    </section>
+
+    <section class="card">
+        <div class="list-header">
+            <h2>频道列表</h2>
+            <div class="list-actions">
+                <span id="channel-count" class="muted"></span>
+                <button id="restore-button" class="secondary-button" type="button">恢复默认</button>
+                <button id="clear-button" class="danger-button" type="button">删除全部</button>
+            </div>
+        </div>
+        <div id="channel-list" class="channel-list"></div>
+    </section>
+
+    <section class="card">
+        <div class="list-header">
+            <h2>用户脚本</h2>
+            <a class="ghost-button" href="/scripts.json">导出 JSON</a>
+        </div>
+        <p class="muted">命中后将优先使用该脚本，不再加载默认脚本。站点可填写完整 URL，也可填写用于通用匹配的片段；相同站点再次保存会覆盖原脚本。</p>
+        <div class="script-import">
+            <input id="script-file-input" type="file" accept=".json,application/json">
+            <button id="script-import-button" class="secondary-button" type="button">导入脚本</button>
+        </div>
+        <form id="script-form">
+            <label>
+                站点
+                <input id="script-site-input" required placeholder="例如：https://live.jstv.com/ 或 jstv.com">
+            </label>
+            <label>
+                JS 脚本
+                <textarea id="script-code-input" required placeholder="(function(){&#10;    // 自定义脚本&#10;})();"></textarea>
+            </label>
+            <button type="submit">保存脚本</button>
+        </form>
+        <div class="list-header script-list-header">
+            <h3>已保存脚本</h3>
+            <span id="script-count" class="muted"></span>
+        </div>
+        <div id="script-list" class="script-list"></div>
+    </section>
+
+    <p id="toast" role="status"></p>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>
