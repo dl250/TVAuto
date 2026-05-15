@@ -37,6 +37,7 @@ dependencies {
     implementation(libs.material.v190)
     implementation(libs.appcompat)
     implementation(libs.material)
+    implementation("com.google.zxing:core:3.5.3")
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)

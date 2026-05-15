@@ -2,38 +2,22 @@ package xyz.mulin.tvauto;
 
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
-import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
-import android.content.res.ColorStateList;
-import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.method.ScrollingMovementMethod;
-import android.util.Base64;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.GestureDetector;
-import android.view.Gravity;
 import android.view.KeyEvent;
-import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewGroup;
-import android.view.WindowManager;
-import android.webkit.WebChromeClient;
-import android.webkit.WebSettings;
 import android.webkit.WebView;
-import android.webkit.WebViewClient;
-import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -45,15 +29,18 @@ import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.android.material.button.MaterialButton;
-
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
-
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.List;
+
+import xyz.mulin.tvauto.data.ChannelRepository;
+import xyz.mulin.tvauto.data.UserScriptRepository;
+import xyz.mulin.tvauto.model.Channel;
+import xyz.mulin.tvauto.player.TvWebViewController;
+import xyz.mulin.tvauto.remote.RemoteManagementServer;
+import xyz.mulin.tvauto.ui.ChannelAdapter;
+import xyz.mulin.tvauto.ui.ChannelManagerDialog;
+import xyz.mulin.tvauto.util.NetworkUtils;
 
 /**
  * TVAuto 主活动类
@@ -75,13 +62,16 @@ public class MainActivity extends AppCompatActivity {
 
     // --- 数据与存储 ---
     private SharedPreferences configPrefs;  // 保存配置（如上次播放位置）
-    private SharedPreferences programPrefs; // 保存用户自定义频道数据
+    private ChannelRepository channelRepository;
+    private UserScriptRepository userScriptRepository;
     private final LinkedHashMap<String, String> channelsMap = new LinkedHashMap<>(); // 内存中的频道数据 (URL -> Name)
+    private final List<Channel> channelItems = new ArrayList<>();
     private String[] channels;              // 频道 URL 数组（用于通过索引快速访问）
     private int currentChannelIndex = 0;    // 当前播放的频道索引
 
     // --- 逻辑工具 ---
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private RemoteManagementServer remoteManagementServer;
     private ChannelAdapter adapter;         // 列表适配器
     private GestureDetector gestureDetector;// 手势识别器
 
@@ -133,7 +123,10 @@ public class MainActivity extends AppCompatActivity {
 
         // 初始化存储
         configPrefs = getSharedPreferences("TVAuto_Config", MODE_PRIVATE);
-        programPrefs = getSharedPreferences("TVAuto_Program", Context.MODE_PRIVATE);
+        SharedPreferences programPrefs = getSharedPreferences("TVAuto_Program", MODE_PRIVATE);
+        channelRepository = new ChannelRepository(programPrefs);
+        userScriptRepository = new UserScriptRepository(programPrefs);
+        channelRepository.initializeDefaultsIfNeeded(getString(R.string.DefaultChannel));
 
         // 加载数据与恢复状态
         loadUserChannels();
@@ -145,7 +138,12 @@ public class MainActivity extends AppCompatActivity {
 
         // 初始化各模块
         initViews();
-        setupWebView();
+        TvWebViewController playerController = new TvWebViewController(
+                webView,
+                () -> channels[currentChannelIndex],
+                userScriptRepository::findBestMatch
+        );
+        playerController.setup();
         setupGestures();
 
         // 首次加载直接播放，无需防抖
@@ -166,6 +164,7 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         // 清理所有未执行的 Handler 任务，防止内存泄漏
         handler.removeCallbacksAndMessages(null);
+        stopRemoteManagementServer();
     }
 
     /**
@@ -200,8 +199,29 @@ public class MainActivity extends AppCompatActivity {
 
         // 配置列表
         rvChannels.setLayoutManager(new LinearLayoutManager(this));
-        adapter = new ChannelAdapter();
+        adapter = new ChannelAdapter(new ChannelAdapter.Listener() {
+            @Override
+            public void onChannelClicked(int position) {
+                resetAutoTimer();
+                currentChannelIndex = position;
+                loadChannelDirectly(position);
+                saveChannelIndex();
+                drawerLayout.closeDrawer(GravityCompat.END);
+            }
+
+            @Override
+            public void onRequestSettingsFocus() {
+                btnSettings.requestFocus();
+            }
+        });
         rvChannels.setAdapter(adapter);
+        adapter.submitChannels(channelItems, currentChannelIndex);
+        rvChannels.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if ((bottom - top) != (oldBottom - oldTop)) {
+                adaptChannelListDensity();
+            }
+        });
+        rvChannels.post(this::adaptChannelListDensity);
 
         // 1. 设置按钮点击事件
         btnSettings.setOnClickListener(v -> {
@@ -247,105 +267,32 @@ public class MainActivity extends AppCompatActivity {
         // 3. 抽屉状态监听
         drawerLayout.addDrawerListener(new DrawerLayout.SimpleDrawerListener() {
             @Override
-            public void onDrawerOpened(View d) {
+            public void onDrawerOpened(@NonNull View d) {
                 resetAutoTimer();
             } // 打开时重置计时
 
             @Override
-            public void onDrawerClosed(View d) {
+            public void onDrawerClosed(@NonNull View d) {
                 handler.removeCallbacks(autoCloseRunnable);
             } // 关闭时取消计时
         });
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
-    private void setupWebView() {
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
-        settings.setDisplayZoomControls(false);
-        settings.setBuiltInZoomControls(false);
-        settings.setSupportZoom(false);
-        settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setDomStorageEnabled(true);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        settings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36");
-
-        webView.setOnTouchListener((v, event) -> true);
-        webView.setOnKeyListener((v, keyCode, event) -> true);
-        webView.setOnGenericMotionListener((v, event) -> true);
-        webView.setFocusable(false);
-        webView.setFocusableInTouchMode(false);
-        webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient() {
-
-            @Override
-            public void onPageCommitVisible(WebView view, String url) {
-                if (url.startsWith("https://test.ustc.edu.cn/")) {
-                    String js =
-                            "(function(){" +
-                                    "var style=document.createElement('style');" +
-                                    "style.innerHTML=`" +
-                                    "body * { visibility:hidden !important; }" +
-                                    "#test, #test * { visibility:visible !important; }" +
-                                    "#test { position:absolute !important; top:0 !important;left: 0% !important;  }" +
-                                    "html, body { overflow:hidden !important; }" +
-                                    "`;" +
-                                    "document.head.appendChild(style);" +
-                                    "})();";
-
-                    view.evaluateJavascript(js, null);
-                }
-            }
-
-
-
-            @Override
-            public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                super.onPageStarted(view, url, favicon);
-                injectVideoResizeJs(view);
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                super.onPageFinished(view, url);
-                view.evaluateJavascript("window.__VIDEO_RESIZE_INJECTED__", value -> {
-                    if ("true".equals(value)) {
-                        Log.d("TJS", "onPageStarted 阶段注入成功");
-                    } else {
-                        Log.d("TJS", "onPageStarted 阶段注入失败，onPageFinished 二次注入");
-                        injectVideoResizeJs(view);
-                    }
-                });
-            }
-        });
-    }
-    // 注入 JavaScript  (全屏)
-    private void injectVideoResizeJs(WebView view) {
-        String c = channels[currentChannelIndex];
-        if (!c.startsWith("file:///") && !c.startsWith("https://test.ustc.edu.cn/")) {
-            String encodedJs ="KGZ1bmN0aW9uKCkgewogICAgdmFyIGxheWVySWQgPSAndHZhdXRvX2xvYWRpbmdfbGF5ZXInOwogICAgaWYgKCFkb2N1bWVudC5nZXRFbGVtZW50QnlJZChsYXllcklkKSkgewogICAgICAgIHZhciBjc3MgPSBgCiAgICAgICAgICAgIEBrZXlmcmFtZXMgcHVsc2VKdW1wIHsKICAgICAgICAgICAgICAgIDAlLCAxMDAlIHsgdHJhbnNmb3JtOiB0cmFuc2xhdGVZKDApIHNjYWxlKDEpOyB9CiAgICAgICAgICAgICAgICAzMCUgeyB0cmFuc2Zvcm06IHRyYW5zbGF0ZVkoLTAuMTJlbSkgc2NhbGUoMS4wMyk7IH0KICAgICAgICAgICAgICAgIDYwJSB7IHRyYW5zZm9ybTogdHJhbnNsYXRlWSgwLjAyZW0pIHNjYWxlKDAuOTgpOyB9CiAgICAgICAgICAgIH0KICAgICAgICAgICAgIyR7bGF5ZXJJZH0gewogICAgICAgICAgICAgICAgcG9zaXRpb246IGZpeGVkOyB0b3A6IDA7IGxlZnQ6IDA7IHJpZ2h0OiAwOyBib3R0b206IDA7CiAgICAgICAgICAgICAgICB3aWR0aDogMTAwdnc7IGhlaWdodDogMTAwdmg7CiAgICAgICAgICAgICAgICBiYWNrZ3JvdW5kOiAjMDAwMDAwOyAKICAgICAgICAgICAgICAgIHotaW5kZXg6IDIxNDc0ODM2NDc7IAogICAgICAgICAgICAgICAgZGlzcGxheTogZmxleDsganVzdGlmeS1jb250ZW50OiBjZW50ZXI7IGFsaWduLWl0ZW1zOiBjZW50ZXI7CiAgICAgICAgICAgICAgICBwb2ludGVyLWV2ZW50czogbm9uZTsKICAgICAgICAgICAgICAgIHRyYW5zaXRpb246IG9wYWNpdHkgMC4zczsKICAgICAgICAgICAgICAgIHRyYW5zZm9ybTogbm9uZSAhaW1wb3J0YW50OwogICAgICAgICAgICAgICAgbWFyZ2luOiAwICFpbXBvcnRhbnQ7CiAgICAgICAgICAgICAgICBwYWRkaW5nOiAwICFpbXBvcnRhbnQ7CiAgICAgICAgICAgICAgICBib3gtc2l6aW5nOiBib3JkZXItYm94OwogICAgICAgICAgICB9CiAgICAgICAgICAgIC50di10ZXh0LWNvbnRhaW5lciB7CiAgICAgICAgICAgICAgICBmb250LWZhbWlseTogc2Fucy1zZXJpZjsgZm9udC13ZWlnaHQ6IDkwMDsgZm9udC1zaXplOiA1dnc7CiAgICAgICAgICAgICAgICBkaXNwbGF5OiBmbGV4OyB3aGl0ZS1zcGFjZTogbm93cmFwOyBsZXR0ZXItc3BhY2luZzogMC4wNWVtOwogICAgICAgICAgICAgICAgdHJhbnNmb3JtOiBub25lOwogICAgICAgICAgICB9CiAgICAgICAgICAgIC50di1jaGFyIHsKICAgICAgICAgICAgICAgIGRpc3BsYXk6IGlubGluZS1ibG9jazsKICAgICAgICAgICAgICAgIGFuaW1hdGlvbjogcHVsc2VKdW1wIDAuOHMgaW5maW5pdGUgZWFzZS1vdXQ7CiAgICAgICAgICAgIH0KICAgICAgICBgOwogICAgICAgIHZhciBzdHlsZSA9IGRvY3VtZW50LmNyZWF0ZUVsZW1lbnQoJ3N0eWxlJyk7CiAgICAgICAgc3R5bGUuYXBwZW5kQ2hpbGQoZG9jdW1lbnQuY3JlYXRlVGV4dE5vZGUoY3NzKSk7CiAgICAgICAgZG9jdW1lbnQuaGVhZC5hcHBlbmRDaGlsZChzdHlsZSk7CgogICAgICAgIHZhciBsYXllciA9IGRvY3VtZW50LmNyZWF0ZUVsZW1lbnQoJ2RpdicpOwogICAgICAgIGxheWVyLmlkID0gbGF5ZXJJZDsKICAgICAgICBsYXllci5pbm5lckhUTUwgPSBgCiAgICAgICAgICAgIDxkaXYgY2xhc3M9InR2LXRleHQtY29udGFpbmVyIj4KICAgICAgICAgICAgICAgIDxzcGFuIGNsYXNzPSJ0di1jaGFyIiBzdHlsZT0iY29sb3I6IzMzMzgzQzsgYW5pbWF0aW9uLWRlbGF5OjBzIj5UPC9zcGFuPgogICAgICAgICAgICAgICAgPHNwYW4gY2xhc3M9InR2LWNoYXIiIHN0eWxlPSJjb2xvcjojMzMzODNDOyBhbmltYXRpb24tZGVsYXk6MC4wNHMiPlY8L3NwYW4+CiAgICAgICAgICAgICAgICA8c3BhbiBjbGFzcz0idHYtY2hhciIgc3R5bGU9ImNvbG9yOiMwMDc5RkI7IGFuaW1hdGlvbi1kZWxheTowLjA4cyI+QTwvc3Bhbj4KICAgICAgICAgICAgICAgIDxzcGFuIGNsYXNzPSJ0di1jaGFyIiBzdHlsZT0iY29sb3I6IzAwNzlGQjsgYW5pbWF0aW9uLWRlbGF5OjAuMTJzIj51PC9zcGFuPgogICAgICAgICAgICAgICAgPHNwYW4gY2xhc3M9InR2LWNoYXIiIHN0eWxlPSJjb2xvcjojMDA3OUZCOyBhbmltYXRpb24tZGVsYXk6MC4xNnMiPnQ8L3NwYW4+CiAgICAgICAgICAgICAgICA8c3BhbiBjbGFzcz0idHYtY2hhciIgc3R5bGU9ImNvbG9yOiMwMDc5RkI7IGFuaW1hdGlvbi1kZWxheTowLjIwcyI+bzwvc3Bhbj4KICAgICAgICAgICAgPC9kaXY+YDsKICAgICAgICBkb2N1bWVudC5kb2N1bWVudEVsZW1lbnQuYXBwZW5kQ2hpbGQobGF5ZXIpOwogICAgfQoKICAgIGZ1bmN0aW9uIHNob3dMb2FkaW5nKCkgewogICAgICAgIHZhciBlbCA9IGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKGxheWVySWQpOwogICAgICAgIGlmIChlbCkgeyBlbC5zdHlsZS5vcGFjaXR5ID0gJzEnOyBlbC5zdHlsZS5kaXNwbGF5ID0gJ2ZsZXgnOyB9CiAgICB9CiAgICBmdW5jdGlvbiBoaWRlTG9hZGluZygpIHsKICAgICAgICB2YXIgZWwgPSBkb2N1bWVudC5nZXRFbGVtZW50QnlJZChsYXllcklkKTsKICAgICAgICBpZiAoZWwpIHsgCiAgICAgICAgICAgIGVsLnN0eWxlLm9wYWNpdHkgPSAnMCc7IAogICAgICAgICAgICBzZXRUaW1lb3V0KCgpID0+IHsgaWYoZWwuc3R5bGUub3BhY2l0eSA9PT0gJzAnKSBlbC5zdHlsZS5kaXNwbGF5ID0gJ25vbmUnOyB9LCAzMDApOwogICAgICAgIH0KICAgIH0KCiAgICBzaG93TG9hZGluZygpOwoKICAgIHdpbmRvdy5fX1ZJREVPX1JFU0laRV9JTkpFQ1RFRF9fID0gdHJ1ZTsKICAgIHZhciB1cmwgPSB3aW5kb3cubG9jYXRpb24uaHJlZi50b0xvd2VyQ2FzZSgpOwogICAgdmFyIGNvbnRhaW5zRG91eXUgPSB1cmwuaW5jbHVkZXMoJ2RvdXl1Jyk7CiAgICB2YXIgY29udGFpbnNNM3U4ID0gdXJsLmluY2x1ZGVzKCcubTN1OCcpOwogICAgdmFyIGNvbnRhaW5zTTN1ID0gdXJsLmluY2x1ZGVzKCcubTN1Jyk7CiAgICB2YXIgY29udGFpbnNIdXlhID0gdXJsLmluY2x1ZGVzKCdodXlhJyk7CiAgICB2YXIgbmVlZFNjYWxlSGFsZiA9ICEoY29udGFpbnNEb3V5dSB8fCBjb250YWluc00zdTggfHwgY29udGFpbnNNM3UgfHwgY29udGFpbnNIdXlhKTsKICAgIGxldCBjb3VudCA9IDA7CgogICAgdmFyIGludGVydmFsID0gc2V0SW50ZXJ2YWwoZnVuY3Rpb24oKSB7CiAgICAgICAgY29uc29sZS5sb2coIm9uUGFnZVN0YXJ0ZWQtPiBnZXRfdmlkZW8iKTsKICAgICAgICB2YXIgdmlkZW8gPSBkb2N1bWVudC5xdWVyeVNlbGVjdG9yKCd2aWRlbycpOwogICAgICAgIAogICAgICAgIGlmICh2aWRlbykgewogICAgICAgICAgICBpZiAoIXZpZGVvLmdldEF0dHJpYnV0ZSgnZGF0YS10dmF1dG8tYm91bmQnKSkgewogICAgICAgICAgICAgICAgdmlkZW8uYWRkRXZlbnRMaXN0ZW5lcignd2FpdGluZycsIHNob3dMb2FkaW5nKTsKICAgICAgICAgICAgICAgIHZpZGVvLmFkZEV2ZW50TGlzdGVuZXIoJ2xvYWRzdGFydCcsIHNob3dMb2FkaW5nKTsKICAgICAgICAgICAgICAgIHZpZGVvLmFkZEV2ZW50TGlzdGVuZXIoJ3NlZWtpbmcnLCBzaG93TG9hZGluZyk7CiAgICAgICAgICAgICAgICB2aWRlby5hZGRFdmVudExpc3RlbmVyKCdwbGF5aW5nJywgaGlkZUxvYWRpbmcpOwogICAgICAgICAgICAgICAgdmlkZW8uYWRkRXZlbnRMaXN0ZW5lcignY2FucGxheScsIGhpZGVMb2FkaW5nKTsKICAgICAgICAgICAgICAgIHZpZGVvLmFkZEV2ZW50TGlzdGVuZXIoJ3NlZWtlZCcsIGhpZGVMb2FkaW5nKTsKICAgICAgICAgICAgICAgIHZpZGVvLnNldEF0dHJpYnV0ZSgnZGF0YS10dmF1dG8tYm91bmQnLCAndHJ1ZScpOwogICAgICAgICAgICB9CiAgICAgICAgICAgIGRvY3VtZW50LmJvZHkuc3R5bGUudHJhbnNmb3JtT3JpZ2luID0gJ3RvcCBsZWZ0JzsKCiAgICAgICAgICAgIGlmIChuZWVkU2NhbGVIYWxmKSB7CiAgICAgICAgICAgICAgICBkb2N1bWVudC5ib2R5LnN0eWxlLnRyYW5zZm9ybSA9ICdzY2FsZSgwLjUpJzsKICAgICAgICAgICAgICAgIHZpZGVvLnN0eWxlLndpZHRoID0gJ2NhbGMoMjAwdmggKiAxNiAvIDkpJzsKICAgICAgICAgICAgICAgIHZpZGVvLnN0eWxlLmhlaWdodCA9ICcyMDB2aCc7CiAgICAgICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgICAgICBkb2N1bWVudC5ib2R5LnN0eWxlLnRyYW5zZm9ybSA9ICcnOwogICAgICAgICAgICAgICAgdmlkZW8uc3R5bGUud2lkdGggPSAnY2FsYygxMDB2aCAqIDE2IC8gOSknOwogICAgICAgICAgICAgICAgdmlkZW8uc3R5bGUuaGVpZ2h0ID0gJzEwMHZoJzsKICAgICAgICAgICAgfQoKICAgICAgICAgICAgdmlkZW8uc3R5bGUucG9zaXRpb24gPSAnZml4ZWQnOwogICAgICAgICAgICB2aWRlby5zdHlsZS50b3AgPSAnMCc7CiAgICAgICAgICAgIHZpZGVvLnN0eWxlLmxlZnQgPSAnMCc7CiAgICAgICAgICAgIHZpZGVvLnN0eWxlLm9iamVjdEZpdCA9ICdjb3Zlcic7CiAgICAgICAgICAgIHZpZGVvLnN0eWxlLnpJbmRleCA9ICc5OTk5JzsKICAgICAgICAgICAgdmlkZW8uc3R5bGUuYmFja2dyb3VuZENvbG9yID0gJ2JsYWNrJzsKICAgICAgICAgICAgdmlkZW8ubXV0ZWQgPSBmYWxzZTsKICAgICAgICAgICAgdmlkZW8udm9sdW1lID0gMS4wOwogICAgICAgICAgICB2aWRlby5wbGF5KCk7CiAgICAgICAgICAgIAogICAgICAgICAgICBsZXQgZWwgPSB2aWRlbzsKICAgICAgICAgICAgd2hpbGUgKGVsKSB7CiAgICAgICAgICAgICAgICBlbC5zdHlsZS5vdmVyZmxvdyA9ICd2aXNpYmxlJzsKICAgICAgICAgICAgICAgIGlmIChlbC5zdHlsZSAmJiBlbCAhPT0gZG9jdW1lbnQuYm9keSkgZWwuc3R5bGUuekluZGV4ID0gJzk5OTknOwogICAgICAgICAgICAgICAgZWwgPSBlbC5wYXJlbnRFbGVtZW50OwogICAgICAgICAgICB9CiAgICAgICAgICAgIGlmICghdmlkZW8ucGF1c2VkICYmIHZpZGVvLnJlYWR5U3RhdGUgPj0gMyAmJiB2aWRlby5tb3pIYXNBdWRpbyAhPT0gZmFsc2UpIHsKICAgICAgICAgICAgICAgIGNvbnNvbGUubG9nKCJvblBhZ2VTdGFydGVkLT4g5aSE55CG5a6M5oiQIik7CiAgICAgICAgICAgICAgICBoaWRlTG9hZGluZygpOwogICAgICAgICAgICAgICAgY2xlYXJJbnRlcnZhbChpbnRlcnZhbCk7CiAgICAgICAgICAgIH0KICAgICAgICAgICAgY291bnQrKzsKICAgICAgICAgICAgaWYoY291bnQgPiAxMCl7CiAgICAgICAgICAgICAgICBjb25zb2xlLmxvZygib25QYWdlU3RhcnRlZC0+IOi2heaXtuiHquWKqOWFs+mXreWumuaXtuWZqCIpOwogICAgICAgICAgICAgICAgY2xlYXJJbnRlcnZhbChpbnRlcnZhbCk7CiAgICAgICAgICAgIH0KICAgICAgICB9IGVsc2UgewogICAgICAgICAgICBzaG93TG9hZGluZygpOwogICAgICAgIH0KICAgIH0sIDUwMCk7Cn0pKCk7";
-            try {
-                byte[] decodedBytes = Base64.decode(encodedJs, Base64.DEFAULT);
-                String jsCode = new String(decodedBytes);
-                view.evaluateJavascript(jsCode, null);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-    }
-    @SuppressLint("ClickableViewAccessibility")
     private void setupGestures() {
         gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
-            public boolean onSingleTapConfirmed(MotionEvent e) {
+            public boolean onSingleTapConfirmed(@NonNull MotionEvent e) {
                 openSidebar(); // 单击呼出菜单
                 return true;
             }
 
             @Override
-            public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+            public boolean onFling(
+                    @NonNull MotionEvent e1,
+                    @NonNull MotionEvent e2,
+                    float velocityX,
+                    float velocityY
+            ) {
                 float diffY = e2.getY() - e1.getY();
                 float diffX = e2.getX() - e1.getX();
                 // 判定为垂直滑动
@@ -360,7 +307,13 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         // 将触摸层的事件委托给手势识别器
-        touchLayer.setOnTouchListener((v, event) -> gestureDetector.onTouchEvent(event));
+        touchLayer.setOnTouchListener((v, event) -> {
+            boolean handled = gestureDetector.onTouchEvent(event);
+            if (event.getAction() == MotionEvent.ACTION_UP) {
+                v.performClick();
+            }
+            return handled;
+        });
     }
 
 
@@ -538,7 +491,7 @@ public class MainActivity extends AppCompatActivity {
 
         // 1. 立即更新 OSD (UI反馈必须快)
         String name = channelsMap.get(channels[index]);
-        tvOsd.setText((index + 1) + "  " + name);
+        tvOsd.setText(getString(R.string.channel_osd_format, index + 1, name));
         tvOsd.setVisibility(View.VISIBLE);
         handler.removeCallbacks(hideOsdRunnable);
         handler.postDelayed(hideOsdRunnable, 3000);
@@ -559,7 +512,7 @@ public class MainActivity extends AppCompatActivity {
 
         // 立即更新 OSD
         String name = channelsMap.get(channels[index]);
-        tvOsd.setText((index + 1) + "  " + name);
+        tvOsd.setText(getString(R.string.channel_osd_format, index + 1, name));
         tvOsd.setVisibility(View.VISIBLE);
         handler.removeCallbacks(hideOsdRunnable);
         handler.postDelayed(hideOsdRunnable, 3000);
@@ -583,7 +536,7 @@ public class MainActivity extends AppCompatActivity {
         lastDigitTime = now;
 
         if (digitBuffer > 0) {
-            tvOsd.setText(digitBuffer + " ");
+            tvOsd.setText(getString(R.string.digit_osd_format, digitBuffer));
             tvOsd.setVisibility(View.VISIBLE);
             handler.removeCallbacks(hideOsdRunnable);
             handler.postDelayed(hideOsdRunnable, 3000);
@@ -612,13 +565,14 @@ public class MainActivity extends AppCompatActivity {
     // =============================================================================================
 
     private void openSidebar() {
-        adapter.notifyDataSetChanged();
+        adapter.setCurrentChannelIndex(currentChannelIndex);
         drawerLayout.openDrawer(GravityCompat.END);
         rvChannels.post(() -> {
+            adaptChannelListDensity();
             LinearLayoutManager layoutManager = (LinearLayoutManager) rvChannels.getLayoutManager();
             if (layoutManager != null) {
                 int listHeight = rvChannels.getHeight();
-                int itemHeight = 0;
+                int itemHeight;
                 View firstChild = rvChannels.getChildAt(0);
                 if (firstChild != null) {
                     itemHeight = firstChild.getHeight();
@@ -636,6 +590,29 @@ public class MainActivity extends AppCompatActivity {
             RecyclerView.ViewHolder holder = rvChannels.findViewHolderForAdapterPosition(currentChannelIndex);
             if (holder != null) holder.itemView.requestFocus();
         }, 200);
+    }
+
+    private void adaptChannelListDensity() {
+        int listHeightPx = rvChannels.getHeight();
+        if (listHeightPx <= 0) return;
+
+        float density = getResources().getDisplayMetrics().density;
+        float listHeightDp = listHeightPx / density;
+
+        int targetVisibleRows = Math.round(listHeightDp / 60f);
+        targetVisibleRows = Math.max(5, Math.min(7, targetVisibleRows));
+
+        int adaptiveItemHeightPx = (listHeightPx / targetVisibleRows) - dp(4);
+        adaptiveItemHeightPx = Math.max(dp(40), Math.min(dp(76), adaptiveItemHeightPx));
+        adapter.setItemHeightPx(adaptiveItemHeightPx);
+    }
+
+    private int dp(int value) {
+        return (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                value,
+                getResources().getDisplayMetrics()
+        );
     }
 
     // 列表滚动辅助方法 (带越界修正)
@@ -668,322 +645,130 @@ public class MainActivity extends AppCompatActivity {
     // 从 Prefs 加载用户频道数据 (JSON)
     private void loadUserChannels() {
         channelsMap.clear();
-        String json = programPrefs.getString("user_channels", "[]");
-        try {
-            JSONArray array = new JSONArray(json);
-            if (array.length() == 0) {
-                // 默认数据
-                channelsMap.put("file:///android_asset/add_channel_help.html", "频道添加指南");
-            } else {
-                for (int i = 0; i < array.length(); i++) {
-                    JSONObject obj = array.getJSONObject(i);
-                    channelsMap.put(obj.getString("url"), obj.getString("name"));
-                }
-            }
-        } catch (JSONException e) {
-            e.printStackTrace();
+        channelItems.clear();
+
+        List<Channel> userChannels = channelRepository.loadUserChannels();
+        if (userChannels.isEmpty()) {
+            channelItems.add(new Channel("频道添加指南", "file:///android_asset/add_channel_help.html"));
+        } else {
+            channelItems.addAll(userChannels);
+        }
+
+        for (Channel channel : channelItems) {
+            channelsMap.put(channel.getUrl(), channel.getName());
         }
         channels = channelsMap.keySet().toArray(new String[0]);
     }
 
-    // ===============================
-// 频道管理弹窗
-// ===============================
-    @SuppressLint("ClickableViewAccessibility")
-    private void manageTvChannels() {
+    private void reloadChannelsKeepingCurrentUrl() {
+        String currentUrl = channels != null && channels.length > 0 && currentChannelIndex < channels.length
+                ? channels[currentChannelIndex]
+                : null;
+        loadUserChannels();
 
-        AlertDialog.Builder builder =
-                new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog);
-        builder.setTitle("频道管理");
-
-        ScrollView scrollView = new ScrollView(this);
-        int bgSemiTransparent = Color.parseColor("#B3000000");
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(48, 32, 48, 32);
-        root.setGravity(Gravity.START);
-        scrollView.addView(root);
-
-        int textColor = Color.parseColor("#FFFFFF");
-        int hintColor = Color.parseColor("#777777");
-        int inputBgColor = Color.parseColor("#22FFFFFF");
-
-        // ===============================
-        // 1. 单条添加（输入 + 右侧按钮）
-        // ===============================
-        EditText name = createCompactEditText("频道名称", textColor, hintColor, inputBgColor);
-        MaterialButton addBtn = createCompactButton("添加", "#006CE0");
-
-        root.addView(createInputActionRow(name, addBtn));
-
-        EditText url = createCompactEditText("直播 URL", textColor, hintColor, inputBgColor);
-        root.addView(url);
-
-        addStrongDivider(root);
-
-        // ===============================
-        // 2. 批量导入（多行输入 + 右侧按钮）
-        // ===============================
-        EditText batch = createCompactEditText(
-                "批量导入: \"名称\",\"URL\"; ...\n留空导入默认频道",
-                textColor, hintColor, inputBgColor
-        );
-        batch.setMinLines(2);
-        batch.setGravity(Gravity.TOP | Gravity.START);
-
-        // 限制最大高度，并启用内部滚动
-        int maxHeight = (int) (getResources().getDisplayMetrics().heightPixels * 0.2f);
-        batch.setMaxHeight(maxHeight);
-        batch.setVerticalScrollBarEnabled(true);
-        batch.setMovementMethod(new ScrollingMovementMethod());
-        batch.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
-
-        // 滚动事件处理，避免 ScrollView 拦截
-        batch.setOnTouchListener((v, event) -> {
-            v.getParent().requestDisallowInterceptTouchEvent(true);
-            if (event.getAction() == MotionEvent.ACTION_UP) {
-                v.getParent().requestDisallowInterceptTouchEvent(false);
+        if (currentUrl != null) {
+            int sameUrlIndex = indexOfChannelUrl(currentUrl);
+            if (sameUrlIndex >= 0) {
+                currentChannelIndex = sameUrlIndex;
+            } else if (channels.length > 0) {
+                currentChannelIndex = Math.min(currentChannelIndex, channels.length - 1);
+                loadChannelDirectly(currentChannelIndex);
+                saveChannelIndex();
             }
-            return false;
-        });
-
-        MaterialButton importBtn = createCompactButton("导入", "#006CE0");
-
-        root.addView(createInputActionRow(batch, importBtn));
-
-        addStrongDivider(root);
-
-        // ===============================
-        // 3. 管理操作（并排）
-        // ===============================
-        MaterialButton deleteBtn = createCompactButton("删除当前", "#7A3333");
-        MaterialButton updateBtn = createCompactButton("更新检测", "#5C6F82");
-
-        root.addView(createButtonPairRow(deleteBtn, updateBtn));
-
-        // ===============================
-        // 4. 关于信息
-        // ===============================
-        TextView info = new TextView(this);
-        info.setText(R.string.tvauto_v);
-        info.setTextColor(Color.LTGRAY);
-        info.setPadding(8, 24, 0, 0);
-        root.addView(info);
-
-        builder.setView(scrollView);
-        AlertDialog dialog = builder.create();
-        dialog.show();
-
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            GradientDrawable bg = new GradientDrawable();
-            bg.setCornerRadius(20);
-            bg.setColor(bgSemiTransparent);
-            scrollView.setBackground(bg);
-
-            WindowManager.LayoutParams lp = dialog.getWindow().getAttributes();
-            lp.dimAmount = 0.3f;
-            dialog.getWindow().setAttributes(lp);
-
-            int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.6f);
-            dialog.getWindow().setLayout(width, WindowManager.LayoutParams.WRAP_CONTENT);
+        } else {
+            currentChannelIndex = 0;
         }
 
-        // ===============================
-        // 事件绑定
-        // ===============================
-        addBtn.setOnClickListener(v -> addOneChannel(name, url));
-        importBtn.setOnClickListener(v -> addAllChannels(batch, 1));
-        deleteBtn.setOnClickListener(v -> deleteCurrentChannel());
-        updateBtn.setOnClickListener(v -> {
-            Intent i = new Intent(Intent.ACTION_VIEW,
-                    Uri.parse("https://pan.baidu.com/s/1ma_jq-9wbR4IQ5_lQO_Eng?pwd=5555"));
-            startActivity(i);
-        });
+        adapter.submitChannels(channelItems, currentChannelIndex);
     }
 
-
-// =================================================
-// UI 组件方法（最终定版）
-// =================================================
-
-    private MaterialButton createCompactButton(String text, String colorHex) {
-        MaterialButton btn = new MaterialButton(this);
-        btn.setText(text);
-        btn.setAllCaps(false);
-        btn.setCornerRadius(14);
-        btn.setGravity(Gravity.CENTER);
-        btn.setAlpha(0.83f);
-        btn.setBackgroundTintList(
-                ColorStateList.valueOf(Color.parseColor(colorHex))
-        );
-        return btn;
+    private int indexOfChannelUrl(String url) {
+        for (int i = 0; i < channels.length; i++) {
+            if (channels[i].equals(url)) return i;
+        }
+        return -1;
     }
 
-    private EditText createCompactEditText(String hint, int textColor, int hintColor, int bgColor) {
-        EditText et = new EditText(this);
-        et.setHint(hint);
-        et.setHintTextColor(hintColor);
-        et.setTextColor(textColor);
-        et.setPadding(32, 24, 32, 24);
-
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(bgColor);
-        bg.setCornerRadius(14);
-        et.setBackground(bg);
-
-        LinearLayout.LayoutParams lp =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                );
-        lp.setMargins(0, 6, 0, 12);
-        et.setLayoutParams(lp);
-
-        return et;
-    }
-
-    // 输入框 + 右侧操作按钮
-    private LinearLayout createInputActionRow(EditText et, MaterialButton btn) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-
-        LinearLayout.LayoutParams etLp =
-                new LinearLayout.LayoutParams(0,
-                        LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        etLp.setMargins(0, 6, 12, 12);
-        et.setLayoutParams(etLp);
-
-        int heightDp = 48; // 按钮高度
-        float scale = getResources().getDisplayMetrics().density;
-        int heightPx = (int) (heightDp * scale + 0.5f);
-
-        LinearLayout.LayoutParams btnLp =
-                new LinearLayout.LayoutParams(120+heightPx, heightPx);
-        btn.setLayoutParams(btnLp);
-
-        row.addView(et);
-        row.addView(btn);
-        return row;
-    }
-
-    // 并排按钮行
-    private LinearLayout createButtonPairRow(MaterialButton left, MaterialButton right) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        int heightDp = 48; // 按钮高度
-        float scale = getResources().getDisplayMetrics().density;
-        int heightPx = (int) (heightDp * scale + 0.5f);
-        LinearLayout.LayoutParams lp =
-                new LinearLayout.LayoutParams(0, heightPx, 1f);
-        lp.setMargins(6, 6, 6, 6);
-
-        left.setLayoutParams(lp);
-        right.setLayoutParams(lp);
-
-        row.addView(left);
-        row.addView(right);
-        return row;
-    }
-
-    private void addStrongDivider(LinearLayout parent) {
-        View v = new View(this);
-        LinearLayout.LayoutParams lp =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, 3);
-        lp.setMargins(0, 24, 0, 32);
-        v.setLayoutParams(lp);
-        v.setBackgroundColor(Color.parseColor("#444444"));
-        parent.addView(v);
-    }
-    // 添加单个频道
-    private void addOneChannel(EditText n, EditText u) {
-        String name = n.getText().toString().trim();
-        String url = u.getText().toString().trim();
-        if (!name.isEmpty() && !url.isEmpty()) {
-            if (channelsMap.containsKey(url)) showToast("频道已存在");
-            else {
-                saveUserChannel(url, name);
-                showToast("已添加");
-                restartApp();
+    private void manageTvChannels() {
+        String localIp = NetworkUtils.findLocalIpv4Address();
+        String remoteUrl = null;
+        try {
+            if (localIp != null) {
+                startRemoteManagementServer();
+                remoteUrl = "http://" + localIp + ":" + remoteManagementServer.getPort() + "/";
             }
-        } else showToast("信息不完整");
+            AlertDialog dialog = ChannelManagerDialog.show(this, remoteUrl, createChannelManagerListener());
+            dialog.setOnDismissListener(d -> stopRemoteManagementServer());
+        } catch (Exception e) {
+            Log.e("RemoteManagement", "Unable to start phone management", e);
+            stopRemoteManagementServer();
+            ChannelManagerDialog.show(this, null, createChannelManagerListener());
+            showToast("手机管理启动失败，已保留电视端管理");
+        }
     }
 
-    // 批量导入频道
-    private void addAllChannels(EditText inputAll, int mode) {
-        String input = inputAll.getText().toString().trim();
-        if (input.isEmpty()) {
-            inputAll.setText(R.string.DefaultChannel);
-            showToast("已填入默认频道，请再次点击导入");
+    private ChannelManagerDialog.Listener createChannelManagerListener() {
+        return new ChannelManagerDialog.Listener() {
+            @Override
+            public void onAddChannel(String name, String url) {
+                addOneChannel(name, url);
+            }
+
+            @Override
+            public void onDeleteCurrentChannel() {
+                deleteCurrentChannel();
+            }
+
+            @Override
+            public void onCheckUpdates() {
+                Intent intent = new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://pan.baidu.com/s/1ma_jq-9wbR4IQ5_lQO_Eng?pwd=5555"));
+                startActivity(intent);
+            }
+        };
+    }
+
+    private void startRemoteManagementServer() throws Exception {
+        if (remoteManagementServer != null) return;
+        remoteManagementServer = new RemoteManagementServer(
+                getAssets(),
+                channelRepository,
+                userScriptRepository,
+                getString(R.string.DefaultChannel),
+                () -> handler.post(this::reloadChannelsKeepingCurrentUrl)
+        );
+        remoteManagementServer.start();
+    }
+
+    private void stopRemoteManagementServer() {
+        if (remoteManagementServer != null) {
+            remoteManagementServer.shutdown();
+            remoteManagementServer = null;
+        }
+    }
+
+    private void addOneChannel(String name, String url) {
+        if (name.isEmpty() || url.isEmpty()) {
+            showToast("信息不完整");
             return;
         }
-        String[] entries = input.split(";");
-        Pattern p = Pattern.compile("^\\s*\"(.*?)\"\\s*,\\s*\"(.*?)\"\\s*$");
-        int count = 0;
-        for (String e : entries) {
-            Matcher m = p.matcher(e);
-            if (m.matches()) {
-                String url = m.group(2).trim();
-                if (!channelsMap.containsKey(url)) {
-                    saveUserChannel(url, m.group(1).trim());
-                    channelsMap.put(url, m.group(1).trim());
-                    count++;
-                }
-            }
-        }
-        if (count > 0) {
-            showToast("导入 " + count + " 个频道");
-            restartApp();
-        } else showToast("无有效新频道");
+        boolean added = channelRepository.addChannel(new Channel(name, url));
+        showToast(added ? "已添加" : "频道已存在");
+        if (added) reloadChannelsKeepingCurrentUrl();
     }
 
-    // 保存数据到 SharedPrefs
-    private void saveUserChannel(String u, String n) {
-        try {
-            JSONArray a = new JSONArray(programPrefs.getString("user_channels", "[]"));
-            JSONObject o = new JSONObject();
-            o.put("name", n);
-            o.put("url", u);
-            a.put(o);
-            programPrefs.edit().putString("user_channels", a.toString()).apply();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    // 删除当前播放的频道
     private void deleteCurrentChannel() {
         if (channels == null || channels.length == 0) return;
-        String c = channels[currentChannelIndex];
-        if (c.startsWith("file:///")) {
+        String currentUrl = channels[currentChannelIndex];
+        if (currentUrl.startsWith("file:///")) {
             showToast("内置无法删除");
             return;
         }
-        try {
-            JSONArray a = new JSONArray(programPrefs.getString("user_channels", "[]"));
-            JSONArray b = new JSONArray();
-            for (int i = 0; i < a.length(); i++) {
-                if (!a.getJSONObject(i).getString("url").equals(c)) b.put(a.getJSONObject(i));
-            }
-            programPrefs.edit().putString("user_channels", b.toString()).apply();
+        boolean deleted = channelRepository.deleteByUrl(currentUrl);
+        if (deleted) {
             showToast("已删除");
-            restartApp();
-        } catch (Exception e) {
-            e.printStackTrace();
+            reloadChannelsKeepingCurrentUrl();
         }
-    }
-
-
-    // =============================================================================================
-    // 8. 辅助工具与适配器 (Helpers & Adapter)
-    // =============================================================================================
-
-    private void restartApp() {
-        startActivity(getPackageManager().getLaunchIntentForPackage(getPackageName()).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP));
-        finish();
     }
 
     private void showToast(String m) {
@@ -993,96 +778,4 @@ public class MainActivity extends AppCompatActivity {
 
 
     // 内部类：频道列表适配器
-    private class ChannelAdapter extends RecyclerView.Adapter<ChannelAdapter.Holder> {
-        @NonNull
-        @Override
-        public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_channel, parent, false);
-            return new Holder(view);
-        }
-
-        @Override
-        public void onBindViewHolder(@NonNull Holder holder, int position) {
-            if (channels == null || position >= channels.length) return;
-
-            // 设置 UI 内容
-            holder.tvNum.setText(String.valueOf(position + 1));
-            holder.tvName.setText(channelsMap.get(channels[position]));
-
-            // 播放指示器 (小绿点)
-            boolean isPlaying = (position == currentChannelIndex);
-            holder.indicator.setVisibility(isPlaying ? View.VISIBLE : View.GONE);
-
-            updateItemStyle(holder, false);
-
-            // 点击事件
-            holder.itemView.setOnClickListener(v -> {
-                int pos = holder.getAdapterPosition();
-                if (pos != RecyclerView.NO_POSITION) {
-                    resetAutoTimer();
-                    currentChannelIndex = pos;
-                    loadChannelDirectly(pos); // 点击列表直接加载，无需防抖
-                    saveChannelIndex();
-                    drawerLayout.closeDrawer(GravityCompat.END);
-                }
-            });
-
-            // 焦点变化监听 (卡片放大/变色)
-            holder.itemView.setOnFocusChangeListener((v, hasFocus) -> updateItemStyle(holder, hasFocus));
-
-            // 按键监听 (实现列表首尾与设置按钮的循环导航)
-            holder.itemView.setOnKeyListener((v, keyCode, event) -> {
-                if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                    int pos = holder.getAdapterPosition();
-                    if (pos != RecyclerView.NO_POSITION) {
-                        // 1. 首项按上/W -> 跳到设置按钮
-                        if (pos == 0 && (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_W)) {
-                            btnSettings.requestFocus();
-                            return true;
-                        }
-                        // 2. 末项按下/S -> 跳到设置按钮
-                        if (pos == adapter.getItemCount() - 1 && (keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_S)) {
-                            btnSettings.requestFocus();
-                            return true;
-                        }
-                    }
-                }
-                return false;
-            });
-        }
-
-        // 更新卡片样式 (选中/播放/普通)
-        private void updateItemStyle(Holder holder, boolean hasFocus) {
-            if (hasFocus) {
-                // 获得焦点：文字黑、深灰，卡片放大
-                holder.tvName.setTextColor(Color.BLACK);
-                holder.tvNum.setTextColor(Color.DKGRAY);
-                holder.itemView.animate().scaleX(1.02f).scaleY(1.02f).setDuration(150).start();
-            } else {
-                // 失去焦点：根据是否播放显示绿色或白色
-                int pos = holder.getAdapterPosition();
-                boolean isPlaying = (pos == currentChannelIndex);
-                holder.tvName.setTextColor(isPlaying ? Color.parseColor("#0079FB") : Color.WHITE);
-                holder.tvNum.setTextColor(Color.parseColor("#88FFFFFF"));
-                holder.itemView.animate().scaleX(1.0f).scaleY(1.0f).setDuration(150).start();
-            }
-        }
-
-        @Override
-        public int getItemCount() {
-            return channels == null ? 0 : channels.length;
-        }
-
-        class Holder extends RecyclerView.ViewHolder {
-            TextView tvNum, tvName;
-            View indicator;
-
-            public Holder(View itemView) {
-                super(itemView);
-                tvNum = itemView.findViewById(R.id.tvNum);
-                tvName = itemView.findViewById(R.id.tvName);
-                indicator = itemView.findViewById(R.id.indicator);
-            }
-        }
-    }
 }

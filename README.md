@@ -9,6 +9,7 @@ TV Auto 是一款使用 WebView 的轻量级电视直播软件。操作简单，
 - 内置默认频道，首次启动即可使用
 - 支持电视端手动添加频道
 - 支持扫码进入手机管理页，在手机上新增、删除、导入和导出频道
+- 支持高级用户按站点添加自定义脚本，并导入或导出脚本配置
 - 理论兼容大部分 16:9 视频网页
 - 支持遥控器和触摸屏操作
 
@@ -35,10 +36,20 @@ TV Auto 是一款使用 WebView 的轻量级电视直播软件。操作简单，
 - 手机端支持：
   - 新增频道
   - 删除频道
+  - 恢复默认频道
+  - 删除全部频道
   - 批量导入 `.txt`
   - 导出当前频道列表为 `.txt`
   - 检测更新
+  - 添加、编辑、删除用户脚本
+  - 导入或导出用户脚本 `.json`
 - 手机管理只在频道管理窗口打开期间可用，关闭窗口后会自动停止
+
+### 高级扩展
+
+- 用户脚本按站点匹配，可填写完整 URL，也可填写域名等通用片段
+- 若页面命中用户脚本，将优先使用该脚本，不再加载默认脚本
+- 用户脚本支持 `.json` 导入导出，便于备份和迁移
 
 ### 批量导入格式
 
@@ -58,20 +69,20 @@ TV Auto 是一款使用 WebView 的轻量级电视直播软件。操作简单，
 
 ## 📷 截图
 
+<img width="1488" height="1097" alt="535521031-0ea36dce-6761-435a-b845-14a08e159434" src="https://github.com/user-attachments/assets/d7448e0d-dfb2-4ce3-a860-ac7a724044ce" />
 <img width="1282" height="771" alt="QQ_1768382253761" src="https://github.com/user-attachments/assets/d49a846c-8962-4b87-a034-6c6a729cac0a" />
 <img width="1282" height="771" alt="QQ_1768382148944" src="https://github.com/user-attachments/assets/48c973c6-9fe0-4f1f-b959-f48507439d2d" />
-<img width="1282" height="771" alt="QQ20260515-135528" src="https://github.com/user-attachments/assets/3889700d-9f47-4f2e-8825-b63e369810eb" />
-<img width="1917" height="2160" alt="IMG_20260515_135713" src="https://github.com/user-attachments/assets/b901481b-da6e-49a5-9418-7542b33f61c3" />
-
-
+<img width="1282" height="771" alt="QQ_1768382171718" src="https://github.com/user-attachments/assets/bf5376c6-3c73-445f-9f11-6719417ea6cf" />
+<img width="1282" height="771" alt="QQ_1768382206251" src="https://github.com/user-attachments/assets/f8391b4a-e519-4905-b632-b045c9380434" />
 
 ---
 
 ## 📦 v5.1 更新
 
 - 新增：扫码进入手机管理页
-- 新增：手机端新增、删除、批量导入、导出频道
+- 新增：手机端新增、删除、恢复默认、删除全部、批量导入、导出频道
 - 新增：手机端检测更新
+- 新增：用户脚本功能，支持站点匹配、编辑、导入和导出
 - 调整：默认频道改为内置，首次启动无需手动导入
 - 优化：频道管理界面布局
 
@@ -80,6 +91,8 @@ TV Auto 是一款使用 WebView 的轻量级电视直播软件。操作简单，
 ## 📦 v5.0 更新
 
 - 全新设计界面
+
+---
 
 ## 📦 v3.2 更新
 
