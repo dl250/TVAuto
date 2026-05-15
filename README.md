@@ -58,11 +58,12 @@ TV Auto 是一款使用 WebView 的轻量级电视直播软件。操作简单，
 
 ## 📷 截图
 
-<img width="1488" height="1097" alt="535521031-0ea36dce-6761-435a-b845-14a08e159434" src="https://github.com/user-attachments/assets/d7448e0d-dfb2-4ce3-a860-ac7a724044ce" />
 <img width="1282" height="771" alt="QQ_1768382253761" src="https://github.com/user-attachments/assets/d49a846c-8962-4b87-a034-6c6a729cac0a" />
 <img width="1282" height="771" alt="QQ_1768382148944" src="https://github.com/user-attachments/assets/48c973c6-9fe0-4f1f-b959-f48507439d2d" />
-<img width="1282" height="771" alt="QQ_1768382171718" src="https://github.com/user-attachments/assets/bf5376c6-3c73-445f-9f11-6719417ea6cf" />
-<img width="1282" height="771" alt="QQ_1768382206251" src="https://github.com/user-attachments/assets/f8391b4a-e519-4905-b632-b045c9380434" />
+<img width="1282" height="771" alt="QQ20260515-135528" src="https://github.com/user-attachments/assets/3889700d-9f47-4f2e-8825-b63e369810eb" />
+<img width="1917" height="2160" alt="IMG_20260515_135713" src="https://github.com/user-attachments/assets/b901481b-da6e-49a5-9418-7542b33f61c3" />
+
+
 
 ---
 
