@@ -27,6 +27,8 @@ public final class ChannelManagerDialog {
         void onDeleteCurrentChannel();
 
         void onCheckUpdates();
+
+        void onOpenRawWebPage();
     }
 
     private ChannelManagerDialog() {
@@ -156,7 +158,8 @@ public final class ChannelManagerDialog {
 
         MaterialButton deleteBtn = createCompactButton(context, "删除当前", "#7A3333");
         MaterialButton updateBtn = createCompactButton(context, "更新检测", "#5C6F82");
-        panel.addView(createButtonPairRow(context, deleteBtn, updateBtn));
+        MaterialButton rawWebBtn = createCompactButton(context, "原始网页", "#4A5D72");
+        panel.addView(createButtonTripleRow(context, deleteBtn, updateBtn, rawWebBtn));
 
         TextView info = new TextView(context);
         info.setText(R.string.tvauto_v);
@@ -170,6 +173,7 @@ public final class ChannelManagerDialog {
         ));
         deleteBtn.setOnClickListener(v -> listener.onDeleteCurrentChannel());
         updateBtn.setOnClickListener(v -> listener.onCheckUpdates());
+        rawWebBtn.setOnClickListener(v -> listener.onOpenRawWebPage());
 
         return panel;
     }
@@ -241,6 +245,26 @@ public final class ChannelManagerDialog {
         left.setLayoutParams(lp);
         right.setLayoutParams(lp);
         row.addView(left);
+        row.addView(right);
+        return row;
+    }
+
+    private static LinearLayout createButtonTripleRow(
+            Context context,
+            MaterialButton left,
+            MaterialButton middle,
+            MaterialButton right
+    ) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        int heightPx = dp(context, 48);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, heightPx, 1f);
+        lp.setMargins(dp(context, 4), 0, dp(context, 4), 0);
+        left.setLayoutParams(lp);
+        middle.setLayoutParams(lp);
+        right.setLayoutParams(lp);
+        row.addView(left);
+        row.addView(middle);
         row.addView(right);
         return row;
     }

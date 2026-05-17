@@ -60,7 +60,7 @@
             <h2>用户脚本</h2>
             <a class="ghost-button" href="/scripts.json">导出 JSON</a>
         </div>
-        <p class="muted">命中后将优先使用该脚本，不再加载默认脚本。站点可填写完整 URL，也可填写用于通用匹配的片段；相同站点再次保存会覆盖原脚本。</p>
+        <p class="muted">命中后将优先使用该脚本，不再加载默认脚本。站点可填写完整 URL，也可填写用于通用匹配的片段；相同站点再次保存会覆盖原脚本。直接填写要执行的 JavaScript 代码即可，无需额外包裹 <code>(function(){ ... })();</code>。</p>
         <div class="script-import">
             <input id="script-file-input" type="file" accept=".json,application/json">
             <button id="script-import-button" class="secondary-button" type="button">导入脚本</button>
@@ -72,7 +72,9 @@
             </label>
             <label>
                 JS 脚本
-                <textarea id="script-code-input" required placeholder="(function(){&#10;    // 自定义脚本&#10;})();"></textarea>
+                <textarea id="script-code-input"
+                          required
+                          placeholder="// 直接填写 JavaScript 代码，无需额外包裹函数&#10;const video = document.querySelector('video');"></textarea>
             </label>
             <button type="submit">保存脚本</button>
         </form>

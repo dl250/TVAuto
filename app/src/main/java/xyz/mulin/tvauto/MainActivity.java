@@ -74,6 +74,9 @@ public class MainActivity extends AppCompatActivity {
     private RemoteManagementServer remoteManagementServer;
     private ChannelAdapter adapter;         // 列表适配器
     private GestureDetector gestureDetector;// 手势识别器
+    private TvWebViewController playerController;
+    private AlertDialog channelManagerDialog;
+    private boolean rawWebMode = false;
 
     // --- 防抖与延迟任务配置 ---
     private int pendingChannelIndex = -1;           // 待切换的频道索引（防抖用）
@@ -138,7 +141,7 @@ public class MainActivity extends AppCompatActivity {
 
         // 初始化各模块
         initViews();
-        TvWebViewController playerController = new TvWebViewController(
+        playerController = new TvWebViewController(
                 webView,
                 () -> channels[currentChannelIndex],
                 userScriptRepository::findBestMatch
@@ -323,13 +326,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
-            int keyCode = event.getKeyCode();
-            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
-                if (!drawerLayout.isDrawerOpen(GravityCompat.END)) {
-                    Log.d("KeyDebug", "dispatchKeyEvent: 强行拦截 OK 键，呼出侧边栏");
-                    openSidebar();
-                    return true;
-                }
+            if (handleAppKeyDown(event.getKeyCode())) {
+                return true;
             }
         }
         return super.dispatchKeyEvent(event);
@@ -340,9 +338,26 @@ public class MainActivity extends AppCompatActivity {
      */
     private long lastBackPressTime = 0; // 记录上一次返回键按下时间
     private static final int BACK_PRESS_INTERVAL = 2000; // 2 秒内算双击
+    private long lastRawWebEntryPressTime = 0;
+    private static final int RAW_WEB_ENTRY_INTERVAL = 2000;
+
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (handleAppKeyDown(keyCode)) {
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    private boolean handleAppKeyDown(int keyCode) {
         Log.d("keyCode",":"+keyCode);
+        if (rawWebMode) {
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                exitRawWebMode();
+                return true;
+            }
+            return false;
+        }
         switch (keyCode) {
             // 数字键选台
             case KeyEvent.KEYCODE_0:
@@ -407,7 +422,7 @@ public class MainActivity extends AppCompatActivity {
                     simulateFocusMove(View.FOCUS_DOWN);
                     return true;
             }
-            return super.onKeyDown(keyCode, event);
+            return false;
         }
 
         // 场景 B: 全屏播放时 (Fullscreen Player)
@@ -437,6 +452,11 @@ public class MainActivity extends AppCompatActivity {
                 switchToNextChannel();
                 return true;
 
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_A:
+                confirmEnterRawWebMode();
+                return true;
+
             case KeyEvent.KEYCODE_BACK:
                 long now = System.currentTimeMillis();
                 if (now - lastBackPressTime < BACK_PRESS_INTERVAL) {
@@ -448,7 +468,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 return true;
         }
-        return super.onKeyDown(keyCode, event);
+        return false;
     }
 
     /**
@@ -519,6 +539,45 @@ public class MainActivity extends AppCompatActivity {
 
         // 立即加载网页
         webView.loadUrl(channels[index]);
+    }
+
+    private void confirmEnterRawWebMode() {
+        long now = System.currentTimeMillis();
+        if (now - lastRawWebEntryPressTime <= RAW_WEB_ENTRY_INTERVAL) {
+            lastRawWebEntryPressTime = 0;
+            enterRawWebMode();
+        } else {
+            lastRawWebEntryPressTime = now;
+            showTransientOsd("再次按左键进入原始网页");
+        }
+    }
+
+    private void enterRawWebMode() {
+        if (channels == null || channels.length == 0) return;
+
+        rawWebMode = true;
+        handler.removeCallbacks(confirmChannelSwitchRunnable);
+        pendingChannelIndex = -1;
+        if (drawerLayout.isDrawerOpen(GravityCompat.END)) {
+            drawerLayout.closeDrawer(GravityCompat.END);
+        }
+        if (channelManagerDialog != null && channelManagerDialog.isShowing()) {
+            channelManagerDialog.dismiss();
+        }
+        touchLayer.setVisibility(View.GONE);
+        playerController.enterRawWebMode();
+        showPersistentOsd("当前为原始网页，按返回回到播放");
+        webView.loadUrl(channels[currentChannelIndex]);
+    }
+
+    private void exitRawWebMode() {
+        if (!rawWebMode || channels == null || channels.length == 0) return;
+
+        rawWebMode = false;
+        touchLayer.setVisibility(View.VISIBLE);
+        playerController.exitRawWebMode();
+        webView.loadUrl(channels[currentChannelIndex]);
+        showTransientOsd("已返回播放模式");
     }
 
     // 保存当前频道索引到 SharedPreferences
@@ -697,12 +756,16 @@ public class MainActivity extends AppCompatActivity {
                 startRemoteManagementServer();
                 remoteUrl = "http://" + localIp + ":" + remoteManagementServer.getPort() + "/";
             }
-            AlertDialog dialog = ChannelManagerDialog.show(this, remoteUrl, createChannelManagerListener());
-            dialog.setOnDismissListener(d -> stopRemoteManagementServer());
+            channelManagerDialog = ChannelManagerDialog.show(this, remoteUrl, createChannelManagerListener());
+            channelManagerDialog.setOnDismissListener(d -> {
+                stopRemoteManagementServer();
+                channelManagerDialog = null;
+            });
         } catch (Exception e) {
             Log.e("RemoteManagement", "Unable to start phone management", e);
             stopRemoteManagementServer();
-            ChannelManagerDialog.show(this, null, createChannelManagerListener());
+            channelManagerDialog = ChannelManagerDialog.show(this, null, createChannelManagerListener());
+            channelManagerDialog.setOnDismissListener(d -> channelManagerDialog = null);
             showToast("手机管理启动失败，已保留电视端管理");
         }
     }
@@ -724,6 +787,11 @@ public class MainActivity extends AppCompatActivity {
                 Intent intent = new Intent(Intent.ACTION_VIEW,
                         Uri.parse("https://pan.baidu.com/s/1ma_jq-9wbR4IQ5_lQO_Eng?pwd=5555"));
                 startActivity(intent);
+            }
+
+            @Override
+            public void onOpenRawWebPage() {
+                enterRawWebMode();
             }
         };
     }
@@ -773,6 +841,19 @@ public class MainActivity extends AppCompatActivity {
 
     private void showToast(String m) {
         Toast.makeText(this, m, Toast.LENGTH_SHORT).show();
+    }
+
+    private void showTransientOsd(String message) {
+        tvOsd.setText(message);
+        tvOsd.setVisibility(View.VISIBLE);
+        handler.removeCallbacks(hideOsdRunnable);
+        handler.postDelayed(hideOsdRunnable, 1800);
+    }
+
+    private void showPersistentOsd(String message) {
+        tvOsd.setText(message);
+        tvOsd.setVisibility(View.VISIBLE);
+        handler.removeCallbacks(hideOsdRunnable);
     }
 
 
