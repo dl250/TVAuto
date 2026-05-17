@@ -144,8 +144,8 @@ public final class TvWebViewController {
     private void applyRawWebPageZoom(WebView view) {
         String js =
                 "(function(){" +
-                        "document.documentElement.style.zoom='0.75';" +
-                        "if(document.body){document.body.style.zoom='0.75';}" +
+                        "document.documentElement.style.zoom='0.8';" +
+                        "if(document.body){document.body.style.zoom='0.8';}" +
                         "})();";
         view.evaluateJavascript(js, null);
     }
