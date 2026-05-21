@@ -407,6 +407,10 @@ public class MainActivity extends AppCompatActivity {
                         if (max >= 0) jumpToPosition(max);
                         return true;
                     }
+                    if (getFocusedChannelPosition() == 0) {
+                        btnSettings.requestFocus();
+                        return true;
+                    }
                     simulateFocusMove(View.FOCUS_UP);
                     return true;
 
@@ -417,6 +421,10 @@ public class MainActivity extends AppCompatActivity {
                     // 防止系统 FocusSearch 错误地跳到屏幕中间可见的 Item
                     if (btnSettings.hasFocus()) {
                         jumpToPosition(0);
+                        return true;
+                    }
+                    if (getFocusedChannelPosition() == adapter.getItemCount() - 1) {
+                        btnSettings.requestFocus();
                         return true;
                     }
                     simulateFocusMove(View.FOCUS_DOWN);
@@ -480,6 +488,13 @@ public class MainActivity extends AppCompatActivity {
         if (currentFocus == null) return;
         View nextFocus = currentFocus.focusSearch(direction);
         if (nextFocus != null) nextFocus.requestFocus();
+    }
+
+    private int getFocusedChannelPosition() {
+        View currentFocus = getCurrentFocus();
+        if (currentFocus == null) return RecyclerView.NO_POSITION;
+        RecyclerView.ViewHolder holder = rvChannels.findContainingViewHolder(currentFocus);
+        return holder != null ? holder.getAdapterPosition() : RecyclerView.NO_POSITION;
     }
 
 
