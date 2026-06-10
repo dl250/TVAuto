@@ -60,13 +60,13 @@ TV Auto 是一款基于 WebView 的轻量级电视直播软件。它将网络直
 
 ![默认脚本不能全屏](docs/images/default-script-limitation.jpg)
 
-在网页管理页中添加脚本时，站点既可以填写完整 URL，也可以填写域名或 URL 片段；当前页面命中后，会优先执行用户脚本，而不是默认脚本 (重启后生效)。
+在网页管理页中添加脚本时，站点既可以填写完整 URL，也可以填写域名或 URL 片段；当前页面命中后，会优先执行用户脚本，而不是默认脚本。
 
 ![添加用户脚本](docs/images/mobile-user-script-add.jpg)
 
 ![添加后的用户脚本](docs/images/mobile-user-script-added.jpg)
 
-脚本生效后，同一站点可以按自己的规则重新适配：
+脚本生效后 (重启后生效)，同一站点可以按自己的规则重新适配：
 
 ![使用用户脚本后的效果](docs/images/custom-script-result.jpg)
 
