@@ -1,3 +1,7 @@
+/*
+河南卫视全屏
+站点：hntv.tv
+*/
 var layerId = 'tvauto_loading_layer';
 if (!document.getElementById(layerId)) {
     var css = `
